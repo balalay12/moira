@@ -34,8 +34,32 @@ func GetUserSubscriptions(database moira.Database, userLogin string) (*dto.Subsc
 	return subscriptionsList, nil
 }
 
+// GetTeamSubscriptions get all team subscriptions
+func GetTeamSubscriptions(database moira.Database, teamID string) (*dto.SubscriptionList, *api.ErrorResponse) {
+	subscriptionIDs, err := database.GetTeamSubscriptionIDs(teamID)
+	if err != nil {
+		return nil, api.ErrorInternalServer(err)
+	}
+	subscriptions, err := database.GetSubscriptions(subscriptionIDs)
+	if err != nil {
+		return nil, api.ErrorInternalServer(err)
+	}
+	subscriptionsList := &dto.SubscriptionList{
+		List: make([]moira.SubscriptionData, 0),
+	}
+	for _, subscription := range subscriptions {
+		if subscription != nil {
+			subscriptionsList.List = append(subscriptionsList.List, *subscription)
+		}
+	}
+	return subscriptionsList, nil
+}
+
 // CreateSubscription create or update subscription
-func CreateSubscription(dataBase moira.Database, userLogin string, subscription *dto.Subscription) *api.ErrorResponse {
+func CreateSubscription(dataBase moira.Database, userLogin, teamID string, subscription *dto.Subscription) *api.ErrorResponse {
+	if userLogin != "" && teamID != "" {
+		return api.ErrorInternalServer(fmt.Errorf("CreateSubscription: cannot create subscription when both userLogin and teamID specified"))
+	}
 	if subscription.ID == "" {
 		uuid4, err := uuid.NewV4()
 		if err != nil {
@@ -53,6 +77,7 @@ func CreateSubscription(dataBase moira.Database, userLogin string, subscription 
 	}
 
 	subscription.User = userLogin
+	subscription.Team = teamID
 	data := moira.SubscriptionData(*subscription)
 	if err := dataBase.SaveSubscription(&data); err != nil {
 		return api.ErrorInternalServer(err)
@@ -63,7 +88,9 @@ func CreateSubscription(dataBase moira.Database, userLogin string, subscription 
 // UpdateSubscription updates existing subscription
 func UpdateSubscription(dataBase moira.Database, subscriptionID string, userLogin string, subscription *dto.Subscription) *api.ErrorResponse {
 	subscription.ID = subscriptionID
-	subscription.User = userLogin
+	if subscription.Team == "" {
+		subscription.User = userLogin
+	}
 	data := moira.SubscriptionData(*subscription)
 	if err := dataBase.SaveSubscription(&data); err != nil {
 		return api.ErrorInternalServer(err)
@@ -102,14 +129,23 @@ func CheckUserPermissionsForSubscription(dataBase moira.Database, subscriptionID
 	subscription, err := dataBase.GetSubscription(subscriptionID)
 	if err != nil {
 		if err == database.ErrNil {
-			return subscription, api.ErrorNotFound(fmt.Sprintf("subscription with ID '%s' does not exists", subscriptionID))
+			return moira.SubscriptionData{}, api.ErrorNotFound(fmt.Sprintf("subscription with ID '%s' does not exists", subscriptionID))
 		}
-		return subscription, api.ErrorInternalServer(err)
+		return moira.SubscriptionData{}, api.ErrorInternalServer(err)
 	}
-	if subscription.User != userLogin {
-		return subscription, api.ErrorForbidden("you are not permitted")
+	if subscription.Team != "" {
+		teamContainsUser, err := dataBase.IsTeamContainUser(subscription.Team, userLogin)
+		if err != nil {
+			return moira.SubscriptionData{}, api.ErrorInternalServer(err)
+		}
+		if teamContainsUser {
+			return subscription, nil
+		}
 	}
-	return subscription, nil
+	if subscription.User == userLogin {
+		return moira.SubscriptionData{}, nil
+	}
+	return moira.SubscriptionData{}, api.ErrorForbidden("you are not permitted")
 }
 
 func isSubscriptionExists(dataBase moira.Database, subscriptionID string) (bool, error) {

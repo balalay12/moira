@@ -21,6 +21,7 @@ type Contact struct {
 	Value string `json:"value"`
 	ID    string `json:"id,omitempty"`
 	User  string `json:"user,omitempty"`
+	Team  string `json:"team,omitempty"`
 }
 
 func (*Contact) Render(w http.ResponseWriter, r *http.Request) error {
