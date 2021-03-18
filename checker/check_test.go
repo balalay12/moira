@@ -3,6 +3,7 @@ package checker
 import (
 	"fmt"
 	"math"
+	"reflect"
 	"testing"
 	"time"
 
@@ -142,7 +143,7 @@ func TestTriggerChecker_PrepareMetrics(t *testing.T) {
 			Convey("fetched metrics has metrics", func() {
 				triggerChecker.trigger.AloneMetrics = map[string]bool{"t1": true}
 				fetched := map[string][]metricSource.MetricData{
-					"t1": []metricSource.MetricData{ //nolint
+					"t1": {
 						*metricSource.MakeMetricData("123", []float64{1, 2, 3}, 10, 0),
 					},
 				}
@@ -155,7 +156,7 @@ func TestTriggerChecker_PrepareMetrics(t *testing.T) {
 			Convey("fetched metrics has duplicate metrics", func() {
 				triggerChecker.trigger.AloneMetrics = map[string]bool{"t1": true}
 				fetched := map[string][]metricSource.MetricData{
-					"t1": []metricSource.MetricData{ //nolint
+					"t1": {
 						*metricSource.MakeMetricData("123", []float64{1, 2, 3}, 10, 0),
 						*metricSource.MakeMetricData("123", []float64{4, 5, 6}, 10, 0),
 					},
@@ -163,17 +164,17 @@ func TestTriggerChecker_PrepareMetrics(t *testing.T) {
 				prepared, alone, err := triggerChecker.prepareMetrics(fetched)
 				So(prepared, ShouldHaveLength, 0)
 				So(alone, ShouldResemble, map[string]metricSource.MetricData{"t1": *metricSource.MakeMetricData("123", []float64{1, 2, 3}, 10, 0)})
-				So(err, ShouldResemble, ErrTriggerHasSameMetricNames{duplicates: map[string][]string{"t1": []string{"123"}}}) //nolint
+				So(err, ShouldResemble, ErrTriggerHasSameMetricNames{duplicates: map[string][]string{"t1": {"123"}}})
 			})
 
 			Convey("Targets have different metrics", func() {
 				fetched := map[string][]metricSource.MetricData{
-					"t1": []metricSource.MetricData{ //nolint
+					"t1": {
 						*metricSource.MakeMetricData("first.metric", []float64{1, 2, 3}, 10, 0),
 						*metricSource.MakeMetricData("second.metric", []float64{4, 5, 6}, 10, 0),
 						*metricSource.MakeMetricData("third.metric", []float64{4, 5, 6}, 10, 0),
 					},
-					"t2": []metricSource.MetricData{ //nolint
+					"t2": {
 						*metricSource.MakeMetricData("second.metric", []float64{4, 5, 6}, 10, 0),
 						*metricSource.MakeMetricData("third.metric", []float64{4, 5, 6}, 10, 0),
 					},
@@ -186,6 +187,28 @@ func TestTriggerChecker_PrepareMetrics(t *testing.T) {
 				So(prepared["second.metric"], ShouldHaveLength, 2)
 				So(prepared["third.metric"], ShouldNotBeNil)
 				So(prepared["third.metric"], ShouldHaveLength, 2)
+				So(alone, ShouldBeEmpty)
+				So(err, ShouldBeNil)
+			})
+
+			Convey("Targets with alone metrics do not have metrics", func() {
+				fetched := map[string][]metricSource.MetricData{
+					"t1": {
+						*metricSource.MakeMetricData("first.metric", []float64{1, 2, 3}, 10, 0),
+						*metricSource.MakeMetricData("second.metric", []float64{4, 5, 6}, 10, 0),
+						*metricSource.MakeMetricData("third.metric", []float64{4, 5, 6}, 10, 0),
+					},
+					"t2": {},
+				}
+				triggerChecker.trigger.AloneMetrics = map[string]bool{"t2": true}
+				prepared, alone, err := triggerChecker.prepareMetrics(fetched)
+				So(prepared, ShouldHaveLength, 3)
+				// So(prepared["first.metric"], ShouldNotBeNil)
+				// So(prepared["first.metric"], ShouldHaveLength, 2)
+				// So(prepared["second.metric"], ShouldNotBeNil)
+				// So(prepared["second.metric"], ShouldHaveLength, 2)
+				// So(prepared["third.metric"], ShouldNotBeNil)
+				// So(prepared["third.metric"], ShouldHaveLength, 2)
 				So(alone, ShouldBeEmpty)
 				So(err, ShouldBeNil)
 			})
@@ -243,8 +266,9 @@ func TestTriggerChecker_PrepareMetrics(t *testing.T) {
 			Convey("fetched metrics has only wildcards, step is 0", func() {
 				prepared, alone, err := triggerChecker.prepareMetrics(
 					map[string][]metricSource.MetricData{
-						"t1": []metricSource.MetricData{ //nolint
-							metricSource.MetricData{Name: "wildcard",
+						"t1": {
+							{
+								Name:     "wildcard",
 								Wildcard: true,
 							},
 						},
@@ -262,8 +286,8 @@ func TestTriggerChecker_PrepareMetrics(t *testing.T) {
 			Convey("fetched metrics has only wildcards, step is 10", func() {
 				prepared, alone, err := triggerChecker.prepareMetrics(
 					map[string][]metricSource.MetricData{
-						"t1": []metricSource.MetricData{ //nolint
-							metricSource.MetricData{
+						"t1": {
+							{
 								Name:     "wildcard",
 								Wildcard: true,
 								StepTime: 10,
@@ -283,7 +307,7 @@ func TestTriggerChecker_PrepareMetrics(t *testing.T) {
 			Convey("fetched metrics has one of last check metrics", func() {
 				prepared, alone, err := triggerChecker.prepareMetrics(
 					map[string][]metricSource.MetricData{
-						"t1": []metricSource.MetricData{ //nolint
+						"t1": {
 							*metricSource.MakeMetricData("first", []float64{1, 2, 3, 4, 5, 6}, 10, 0),
 						},
 					})
@@ -300,7 +324,7 @@ func TestTriggerChecker_PrepareMetrics(t *testing.T) {
 			Convey("fetched metrics has one of last check metrics and one new", func() {
 				prepared, alone, err := triggerChecker.prepareMetrics(
 					map[string][]metricSource.MetricData{
-						"t1": []metricSource.MetricData{ //nolint
+						"t1": {
 							*metricSource.MakeMetricData("first", []float64{1, 2, 3, 4, 5, 6}, 10, 0),
 							*metricSource.MakeMetricData("fourth", []float64{7, 8, 9, 1, 2, 3}, 10, 0),
 						},
@@ -1502,10 +1526,7 @@ func TestTriggerChecker_handlePrepareError(t *testing.T) {
 			})
 		})
 		Convey("with ErrUnexpectedAloneMetric", func() {
-			err := ErrUnexpectedAloneMetric{
-				expected: map[string]bool{"t1": true},
-				actual:   map[string]string{"t2": "test.metric.name"},
-			}
+			err := conversion.ErrUnexpectedAloneMetric{}
 			triggerChecker.lastCheck = &moira.CheckData{
 				State:          moira.StateOK,
 				EventTimestamp: 10,
@@ -1533,4 +1554,63 @@ func TestTriggerChecker_handlePrepareError(t *testing.T) {
 			So(checkDataReturn, ShouldResemble, expectedCheckData)
 		})
 	})
+}
+
+func TestTriggerChecker_prepareMetrics(t *testing.T) {
+	type fields struct {
+		database  moira.Database
+		logger    moira.Logger
+		config    *Config
+		metrics   *metrics.CheckMetrics
+		source    metricSource.MetricSource
+		from      int64
+		until     int64
+		triggerID string
+		trigger   *moira.Trigger
+		lastCheck *moira.CheckData
+		ttl       int64
+		ttlState  moira.TTLState
+	}
+	type args struct {
+		fetchedMetrics map[string][]metricSource.MetricData
+	}
+	tests := []struct {
+		name    string
+		fields  fields
+		args    args
+		want    map[string]map[string]metricSource.MetricData
+		want1   map[string]metricSource.MetricData
+		wantErr bool
+	}{
+		// TODO: Add test cases.
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			triggerChecker := &TriggerChecker{
+				database:  tt.fields.database,
+				logger:    tt.fields.logger,
+				config:    tt.fields.config,
+				metrics:   tt.fields.metrics,
+				source:    tt.fields.source,
+				from:      tt.fields.from,
+				until:     tt.fields.until,
+				triggerID: tt.fields.triggerID,
+				trigger:   tt.fields.trigger,
+				lastCheck: tt.fields.lastCheck,
+				ttl:       tt.fields.ttl,
+				ttlState:  tt.fields.ttlState,
+			}
+			got, got1, err := triggerChecker.prepareMetrics(tt.args.fetchedMetrics)
+			if (err != nil) != tt.wantErr {
+				t.Errorf("TriggerChecker.prepareMetrics() error = %v, wantErr %v", err, tt.wantErr)
+				return
+			}
+			if !reflect.DeepEqual(got, tt.want) {
+				t.Errorf("TriggerChecker.prepareMetrics() got = %v, want %v", got, tt.want)
+			}
+			if !reflect.DeepEqual(got1, tt.want1) {
+				t.Errorf("TriggerChecker.prepareMetrics() got1 = %v, want %v", got1, tt.want1)
+			}
+		})
+	}
 }

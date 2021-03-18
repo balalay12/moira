@@ -274,6 +274,7 @@ type CheckData struct {
 	Metrics map[string]MetricState `json:"metrics"`
 	// MetricsToTargetRelation is a map that holds relation between metric names that was alone during last
 	// check and targets that fetched this metric
+	//	{"t1": "metric.name.1", "t2": "metric.name.2"}
 	MetricsToTargetRelation      map[string]string `json:"metrics_to_target_relation"`
 	Score                        int64             `json:"score"`
 	State                        State             `json:"state"`
