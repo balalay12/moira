@@ -283,6 +283,10 @@ func DeleteTeamUser(dataBase moira.Database, teamID string, removeUserID string)
 		return dto.TeamMembers{}, api.ErrorInternalServer(fmt.Errorf("cannot get team users from database: %w", err))
 	}
 
+	if len(existingUsers) <= 1 {
+		return dto.TeamMembers{}, api.ErrorInvalidRequest(fmt.Errorf("cannot remove last member of team"))
+	}
+
 	userFound := false
 	for _, userID := range existingUsers {
 		if userID == removeUserID {

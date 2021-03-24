@@ -290,6 +290,12 @@ func TestDeleteTeamUser(t *testing.T) {
 			So(reply, ShouldResemble, dto.TeamMembers{})
 			So(err, ShouldResemble, api.ErrorNotFound("cannot find team users: testTeam"))
 		})
+		Convey("removal of last user", func() {
+			dataBase.EXPECT().GetTeamUsers(teamID).Return([]string{userID}, nil)
+			reply, err := DeleteTeamUser(dataBase, teamID, userID)
+			So(reply, ShouldResemble, dto.TeamMembers{})
+			So(err, ShouldResemble, api.ErrorInvalidRequest(fmt.Errorf("cannot remove last member of team")))
+		})
 		Convey("team does not contain user", func() {
 			dataBase.EXPECT().GetTeamUsers(teamID).Return([]string{userID2, userID3}, nil)
 			reply, err := DeleteTeamUser(dataBase, teamID, userID)
