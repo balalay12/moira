@@ -15,13 +15,9 @@ func TestInit(t *testing.T) {
 	logger, _ := logging.ConfigureLog("stdout", "debug", "test", true)
 	Convey("Init tests", t, func() {
 		sender := Sender{}
-		senderSettings := map[string]string{
-			"max_events": "-1",
+		senderSettings := map[string]interface{}{
+			"max_events": -1,
 		}
-		Convey("Empty map should fail", func() {
-			err := sender.Init(map[string]string{}, logger, nil, "")
-			So(err, ShouldNotResemble, nil)
-		})
 		Convey("Minimal settings", func() {
 			err := sender.Init(senderSettings, logger, nil, "")
 			So(err, ShouldResemble, nil)
@@ -35,8 +31,8 @@ func TestMSTeamsHttpResponse(t *testing.T) {
 	sender := Sender{}
 	logger, _ := logging.ConfigureLog("stdout", "info", "test", true)
 	location, _ := time.LoadLocation("UTC")
-	_ = sender.Init(map[string]string{
-		"max_events": "-1",
+	_ = sender.Init(map[string]interface{}{
+		"max_events": -1,
 	}, logger, location, "")
 	event := moira.NotificationEvent{
 		TriggerID: "TriggerID",
@@ -158,7 +154,7 @@ some other text _italic text_`,
 							ActivityText:  "",
 							Facts: []Fact{
 								{
-									Name:  "02:40",
+									Name:  "02:40 (GMT+00:00)",
 									Value: "```Metric = 123 (OK to ERROR)```",
 								},
 							},
@@ -189,7 +185,7 @@ some other text _italic text_`,
 							ActivityText:  "",
 							Facts: []Fact{
 								{
-									Name:  "02:40",
+									Name:  "02:40 (GMT+00:00)",
 									Value: "```Metric = 123 (OK to WARN)```",
 								},
 							},
@@ -220,7 +216,7 @@ some other text _italic text_`,
 							ActivityText:  "",
 							Facts: []Fact{
 								{
-									Name:  "02:40",
+									Name:  "02:40 (GMT+00:00)",
 									Value: "```Metric = 123 (WARN to OK)```",
 								},
 							},
@@ -251,7 +247,7 @@ some other text _italic text_`,
 							ActivityText:  "",
 							Facts: []Fact{
 								{
-									Name:  "02:40",
+									Name:  "02:40 (GMT+00:00)",
 									Value: "```Metric = 123 (NODATA to NODATA)```",
 								},
 							},
@@ -276,7 +272,7 @@ some other text _italic text_`,
 						ActivityText:  "<h1>header1</h1>\n\n<p>some text <strong>bold text</strong></p>\n\n<h2>header 2</h2>\n\n<p>some other text <em>italic text</em></p>\n",
 						Facts: []Fact{
 							{
-								Name:  "02:40",
+								Name:  "02:40 (GMT+00:00)",
 								Value: "```Metric = 123 (OK to NODATA)```",
 							},
 						},
@@ -311,7 +307,7 @@ some other text _italic text_`,
 						ActivityText:  "",
 						Facts: []Fact{
 							{
-								Name:  "02:40",
+								Name:  "02:40 (GMT+00:00)",
 								Value: "```Metric = 123 (OK to NODATA)```",
 							},
 						},
@@ -335,7 +331,7 @@ some other text _italic text_`,
 						ActivityText:  "<h1>header1</h1>\n\n<p>some text <strong>bold text</strong></p>\n\n<h2>header 2</h2>\n\n<p>some other text <em>italic text</em></p>\n",
 						Facts: []Fact{
 							{
-								Name:  "02:40",
+								Name:  "02:40 (GMT+00:00)",
 								Value: "```Metric = 123 (OK to NODATA)```",
 							},
 							{
@@ -375,27 +371,27 @@ some other text _italic text_`,
 						ActivityText:  "<h1>header1</h1>\n\n<p>some text <strong>bold text</strong></p>\n\n<h2>header 2</h2>\n\n<p>some other text <em>italic text</em></p>\n",
 						Facts: []Fact{
 							{
-								Name:  "02:40",
+								Name:  "02:40 (GMT+00:00)",
 								Value: "```Metric = 123 (OK to NODATA)```",
 							},
 							{
-								Name:  "02:40",
+								Name:  "02:40 (GMT+00:00)",
 								Value: "```Metric = 123 (OK to NODATA)```",
 							},
 							{
-								Name:  "02:40",
+								Name:  "02:40 (GMT+00:00)",
 								Value: "```Metric = 123 (OK to NODATA)```",
 							},
 							{
-								Name:  "02:40",
+								Name:  "02:40 (GMT+00:00)",
 								Value: "```Metric = 123 (OK to NODATA)```",
 							},
 							{
-								Name:  "02:40",
+								Name:  "02:40 (GMT+00:00)",
 								Value: "```Metric = 123 (OK to NODATA)```",
 							},
 							{
-								Name:  "02:40",
+								Name:  "02:40 (GMT+00:00)",
 								Value: "```Metric = 123 (OK to NODATA)```",
 							},
 						},
@@ -431,7 +427,7 @@ some other text _italic text_`,
 						ActivityText:  "",
 						Facts: []Fact{
 							{
-								Name:  "02:40",
+								Name:  "02:40 (GMT+00:00)",
 								Value: "```Metric = 123 (OK to NODATA)```",
 							},
 						},

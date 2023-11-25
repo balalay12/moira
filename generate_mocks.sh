@@ -1,4 +1,4 @@
-##!/bin/sh
+#!/bin/sh
 
 # For windows users: Run this script via "Git bash"
 
@@ -21,5 +21,9 @@ mockgen -destination=mock/metric_source/fetch_result.go -package=mock_metric_sou
 mockgen -destination=mock/heartbeat/heartbeat.go -package=mock_heartbeat github.com/moira-alert/moira/notifier/selfstate/heartbeat Heartbeater
 mockgen -destination=mock/clock/clock.go -package=mock_clock github.com/moira-alert/moira Clock
 mockgen -destination=mock/notifier/mattermost/client.go -package=mock_mattermost github.com/moira-alert/moira/senders/mattermost Client
+
+mockgen -destination=mock/moira-alert/metrics/registry.go -package=mock_moira_alert github.com/moira-alert/moira/metrics Registry
+mockgen -destination=mock/moira-alert/metrics/meter.go -package=mock_moira_alert github.com/moira-alert/moira/metrics Meter
+mockgen -destination=mock/moira-alert/prometheus_api.go -package=mock_moira_alert github.com/moira-alert/moira/metric_source/prometheus PrometheusApi
 
 git add mock/*

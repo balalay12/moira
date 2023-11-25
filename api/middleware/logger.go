@@ -3,6 +3,7 @@ package middleware
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -64,7 +65,14 @@ func RequestLogger(logger moira.Logger) func(next http.Handler) http.Handler {
 func getErrorResponseIfItHas(writer http.ResponseWriter) *api.ErrorResponse {
 	writerWithBody := writer.(*responseWriterWithBody)
 	var errResp = &api.ErrorResponse{}
-	json.NewDecoder(&writerWithBody.body).Decode(errResp) //nolint
+	if err := json.NewDecoder(&writerWithBody.body).Decode(errResp); err != nil {
+		return &api.ErrorResponse{
+			HTTPStatusCode: http.StatusInternalServerError,
+			Err:            err,
+			ErrorText:      err.Error(),
+		}
+	}
+
 	return errResp
 }
 
@@ -75,26 +83,25 @@ func newLogEntry(logger moira.Logger, request *http.Request) *apiLoggerEntry {
 		msg:     "",
 	}
 
-	scheme := "http"
-	if request.TLS != nil {
-		scheme = "https"
-	}
-	userName := GetLogin(request)
-	if userName == "" {
-		userName = "anonymous"
-	}
-
+	scheme := getScheme(request.TLS)
 	uri := fmt.Sprintf("%s://%s%s", scheme, request.Host, request.RequestURI)
-
 	log := entry.logger
-	log.String("context", "http")
+	log.String("context", scheme)
 	log.String("http.method", request.Method)
 	log.String("http.uri", uri)
 	log.String("http.protocol", request.Proto)
 	log.String("http.remote_addr", request.RemoteAddr)
-	log.String("username", userName)
+	log.String("username", GetLogin(request))
 
 	return entry
+}
+
+func getScheme(tls *tls.ConnectionState) string {
+	if tls != nil {
+		return "https"
+	}
+
+	return "http"
 }
 
 func (entry *apiLoggerEntry) fillMsg(request *http.Request) {
@@ -103,12 +110,7 @@ func (entry *apiLoggerEntry) fillMsg(request *http.Request) {
 		return
 	}
 
-	scheme := "http"
-	if request.TLS != nil {
-		scheme = "https"
-	}
-
-	uri := fmt.Sprintf("%s://%s%s", scheme, request.Host, pattern)
+	uri := fmt.Sprintf("%s://%s%s", getScheme(request.TLS), request.Host, pattern)
 	entry.msg = fmt.Sprintf("%s %s %s", request.Method, uri, request.Proto)
 }
 
@@ -124,6 +126,7 @@ func (entry *apiLoggerEntry) write(status, bytes int, elapsed time.Duration, res
 		errorResponse := getErrorResponseIfItHas(response)
 		if errorResponse != nil {
 			event.Error(errorResponse.Err)
+			event.String("error_text", errorResponse.ErrorText)
 		}
 	} else {
 		event = entry.logger.Info()

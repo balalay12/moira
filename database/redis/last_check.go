@@ -28,8 +28,8 @@ func (connector *DbConnector) GetTriggerLastCheck(triggerID string) (moira.Check
 }
 
 // SetTriggerLastCheck sets trigger last check data
-func (connector *DbConnector) SetTriggerLastCheck(triggerID string, checkData *moira.CheckData, isRemote bool) error {
-	selfStateCheckCountKey := connector.getSelfStateCheckCountKey(isRemote)
+func (connector *DbConnector) SetTriggerLastCheck(triggerID string, checkData *moira.CheckData, triggerSource moira.TriggerSource) error {
+	selfStateCheckCountKey := connector.getSelfStateCheckCountKey(triggerSource)
 	bytes, err := reply.GetCheckBytes(*checkData)
 	if err != nil {
 		return err
@@ -65,14 +65,23 @@ func (connector *DbConnector) SetTriggerLastCheck(triggerID string, checkData *m
 	return nil
 }
 
-func (connector *DbConnector) getSelfStateCheckCountKey(isRemote bool) string {
+func (connector *DbConnector) getSelfStateCheckCountKey(triggerSource moira.TriggerSource) string {
 	if connector.source != Checker {
 		return ""
 	}
-	if isRemote {
+	switch triggerSource {
+	case moira.GraphiteLocal:
+		return selfStateChecksCounterKey
+
+	case moira.GraphiteRemote:
 		return selfStateRemoteChecksCounterKey
+
+	case moira.PrometheusRemote:
+		return selfStatePrometheusChecksCounterKey
+
+	default:
+		return ""
 	}
-	return selfStateChecksCounterKey
 }
 
 func appendRemoveTriggerLastCheckToRedisPipeline(ctx context.Context, pipe redis.Pipeliner, triggerID string) redis.Pipeliner {
@@ -100,47 +109,38 @@ func (connector *DbConnector) RemoveTriggerLastCheck(triggerID string) error {
 
 func cleanUpAbandonedTriggerLastCheckOnRedisNode(connector *DbConnector, client redis.UniversalClient) error {
 	lastCheckIterator := client.Scan(connector.context, 0, metricLastCheckKey("*"), 0).Iterator()
+	count := 0
 	for lastCheckIterator.Next(connector.context) {
 		lastCheckKey := lastCheckIterator.Val()
 		triggerID := strings.TrimPrefix(lastCheckKey, metricLastCheckKey(""))
 		_, err := connector.GetTrigger(triggerID)
 		if err == database.ErrNil {
-			err := connector.RemoveTriggerLastCheck(triggerID)
+			err = connector.RemoveTriggerLastCheck(triggerID)
 			if err != nil {
 				return err
 			}
-			connector.logger.Info().
+			count++
+			connector.logger.Debug().
 				String("trigger_id", triggerID).
 				Msg("Cleaned up last check for trigger")
+		} else if err != nil {
+			connector.logger.Error().
+				String("trigger_id", triggerID).
+				Error(err).
+				Msg("Error while getting trigger")
 		}
 	}
+
+	connector.logger.Info().
+		Int("count deleted last_check", count).
+		Msg("Cleaned up last check for trigger")
+
 	return nil
 }
 
 // CleanUpAbandonedTriggerLastCheck cleans up abandoned triggers last check.
 func (connector *DbConnector) CleanUpAbandonedTriggerLastCheck() error {
-	client := *connector.client
-
-	switch c := client.(type) {
-	case *redis.ClusterClient:
-		err := c.ForEachMaster(connector.context, func(ctx context.Context, shard *redis.Client) error {
-			err := cleanUpAbandonedTriggerLastCheckOnRedisNode(connector, shard)
-			if err != nil {
-				return err
-			}
-			return nil
-		})
-		if err != nil {
-			return err
-		}
-	default:
-		err := cleanUpAbandonedTriggerLastCheckOnRedisNode(connector, c)
-		if err != nil {
-			return err
-		}
-	}
-
-	return nil
+	return connector.callFunc(cleanUpAbandonedTriggerLastCheckOnRedisNode)
 }
 
 // SetTriggerCheckMaintenance sets maintenance for whole trigger and to given metrics,
@@ -196,6 +196,28 @@ func (connector *DbConnector) checkDataScoreChanged(triggerID string, checkData 
 	}
 
 	return oldScore != float64(checkData.Score)
+}
+
+// getTriggersLastCheck returns an array of trigger checks by the passed ids, if the trigger does not exist, it is nil
+func (connector *DbConnector) getTriggersLastCheck(triggerIDs []string) ([]*moira.CheckData, error) {
+	ctx := connector.context
+	pipe := (*connector.client).TxPipeline()
+
+	results := make([]*redis.StringCmd, len(triggerIDs))
+	for i, id := range triggerIDs {
+		var result *redis.StringCmd
+		if id != "" {
+			result = pipe.Get(ctx, metricLastCheckKey(id))
+		}
+		results[i] = result
+	}
+
+	_, err := pipe.Exec(ctx)
+	if err != nil && err != redis.Nil {
+		return nil, err
+	}
+
+	return reply.Checks(results)
 }
 
 var badStateTriggersKey = "moira-bad-state-triggers"

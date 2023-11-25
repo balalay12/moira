@@ -6,9 +6,12 @@ import (
 	"strings"
 )
 
-var tagSpecRegex = regexp.MustCompile(`^["']([^,!=]+)\s*(!?=~?)\s*([^,]*)["']`)
-var tagSpecDelimiterRegex = regexp.MustCompile(`^\s*,\s*`)
-var seriesByTagRegex = regexp.MustCompile(`^seriesByTag\(([^)]+)\)$`)
+var (
+	tagSpecRegex          = regexp.MustCompile(`^["']([^,!=]+)\s*(!?=~?)\s*([^"']*)["']`)
+	tagSpecDelimiterRegex = regexp.MustCompile(`^\s*,\s*`)
+	seriesByTagRegex      = regexp.MustCompile(`^seriesByTag\((.+)\)$`)
+	wildcardExprRegex     = regexp.MustCompile(`\{(.*?)\}`)
+)
 
 // ErrNotSeriesByTag is returned if the pattern is not seriesByTag
 var ErrNotSeriesByTag = fmt.Errorf("not seriesByTag pattern")
@@ -25,6 +28,8 @@ const (
 	MatchOperator TagSpecOperator = "=~"
 	// NotMatchOperator is a non-match operator which helps not to match metric by regex
 	NotMatchOperator TagSpecOperator = "!=~"
+
+	correctLengthOfMatchedWildcardIndexesSlice = 4
 )
 
 // TagSpec is a filter expression inside seriesByTag pattern
@@ -34,13 +39,18 @@ type TagSpec struct {
 	Value    string
 }
 
-func transformWildcardToRegexpInSeriesByTag(input string) string {
-	var result = input
-	var re = regexp.MustCompile(`\{(.*?)\}`)
-	var correctLengthOfMatchedWildcardIndexesSlice = 4
+func transformWildcardToRegexpInSeriesByTag(input string) (string, bool) {
+	var isTransformed = false
+
+	result := strings.ReplaceAll(input, ".", "\\.")
+
+	if strings.Contains(result, "*") {
+		result = strings.ReplaceAll(result, "*", ".*")
+		isTransformed = true
+	}
 
 	for {
-		matchedWildcardIndexes := re.FindStringSubmatchIndex(result)
+		matchedWildcardIndexes := wildcardExprRegex.FindStringSubmatchIndex(result)
 		if len(matchedWildcardIndexes) != correctLengthOfMatchedWildcardIndexesSlice {
 			break
 		}
@@ -53,11 +63,14 @@ func transformWildcardToRegexpInSeriesByTag(input string) string {
 			slc[i] = strings.TrimSpace(slc[i])
 		}
 		regularExpression = strings.Join(slc, "|")
-		regularExpression = "~" + regularExpression + "$"
 		result = result[:matchedWildcardIndexes[0]] + regularExpression + result[matchedWildcardIndexes[1]:]
+		isTransformed = true
 	}
 
-	return result
+	if !isTransformed {
+		return input, false
+	}
+	return "^" + result + "$", true
 }
 
 // ParseSeriesByTag parses seriesByTag pattern and returns tags specs
@@ -68,8 +81,6 @@ func ParseSeriesByTag(input string) ([]TagSpec, error) {
 	}
 
 	input = input[matchedSeriesByTagIndexes[2]:matchedSeriesByTagIndexes[3]]
-
-	input = transformWildcardToRegexpInSeriesByTag(input)
 
 	tagSpecs := make([]TagSpec, 0)
 
@@ -94,10 +105,23 @@ func ParseSeriesByTag(input string) ([]TagSpec, error) {
 		operator := TagSpecOperator(input[matchedTagSpecIndexes[4]:matchedTagSpecIndexes[5]])
 		spec := input[matchedTagSpecIndexes[6]:matchedTagSpecIndexes[7]]
 
-		tagSpecs = append(tagSpecs, TagSpec{name, operator, spec})
+		if operator != MatchOperator && operator != NotMatchOperator {
+			var isTransformed bool
 
+			// if got spec like '{a,b}' we must transform it to regex and change operator from 'equal' to 'match'
+			if spec, isTransformed = transformWildcardToRegexpInSeriesByTag(spec); isTransformed {
+				if operator == EqualOperator {
+					operator = MatchOperator
+				} else {
+					operator = NotMatchOperator
+				}
+			}
+		}
+
+		tagSpecs = append(tagSpecs, TagSpec{name, operator, spec})
 		input = input[matchedTagSpecIndexes[1]:]
 	}
+
 	return tagSpecs, nil
 }
 
@@ -105,7 +129,7 @@ func ParseSeriesByTag(input string) ([]TagSpec, error) {
 type MatchingHandler func(string, map[string]string) bool
 
 // CreateMatchingHandlerForPattern creates function for matching by tag list
-func CreateMatchingHandlerForPattern(tagSpecs []TagSpec) (string, MatchingHandler) {
+func CreateMatchingHandlerForPattern(tagSpecs []TagSpec, compatibility *Compatibility) (string, MatchingHandler, error) {
 	matchingHandlers := make([]MatchingHandler, 0)
 	var nameTagValue string
 
@@ -113,7 +137,12 @@ func CreateMatchingHandlerForPattern(tagSpecs []TagSpec) (string, MatchingHandle
 		if tagSpec.Name == "name" && tagSpec.Operator == EqualOperator {
 			nameTagValue = tagSpec.Value
 		} else {
-			matchingHandlers = append(matchingHandlers, createMatchingHandlerForOneTag(tagSpec))
+			handler, err := createMatchingHandlerForOneTag(tagSpec, compatibility)
+			if err != nil {
+				return "", nil, err
+			}
+
+			matchingHandlers = append(matchingHandlers, handler)
 		}
 	}
 
@@ -126,12 +155,13 @@ func CreateMatchingHandlerForPattern(tagSpecs []TagSpec) (string, MatchingHandle
 		return true
 	}
 
-	return nameTagValue, matchingHandler
+	return nameTagValue, matchingHandler, nil
 }
 
-func createMatchingHandlerForOneTag(spec TagSpec) MatchingHandler {
+func createMatchingHandlerForOneTag(spec TagSpec, compatibility *Compatibility) (MatchingHandler, error) {
 	var matchingHandlerCondition func(string) bool
 	allowMatchEmpty := false
+
 	switch spec.Operator {
 	case EqualOperator:
 		allowMatchEmpty = true
@@ -143,13 +173,24 @@ func createMatchingHandlerForOneTag(spec TagSpec) MatchingHandler {
 			return value != spec.Value
 		}
 	case MatchOperator:
-		allowMatchEmpty = true
-		matchRegex := regexp.MustCompile("^" + spec.Value)
+		allowMatchEmpty = compatibility.AllowRegexMatchEmpty
+
+		matchRegex, err := newMatchRegex(spec.Value, compatibility)
+		if err != nil {
+			return nil, err
+		}
+
 		matchingHandlerCondition = func(value string) bool {
 			return matchRegex.MatchString(value)
 		}
 	case NotMatchOperator:
-		matchRegex := regexp.MustCompile("^" + spec.Value)
+		allowMatchEmpty = compatibility.AllowRegexMatchEmpty
+
+		matchRegex, err := newMatchRegex(spec.Value, compatibility)
+		if err != nil {
+			return nil, err
+		}
+
 		matchingHandlerCondition = func(value string) bool {
 			return !matchRegex.MatchString(value)
 		}
@@ -168,5 +209,19 @@ func createMatchingHandlerForOneTag(spec TagSpec) MatchingHandler {
 			return matchingHandlerCondition(value)
 		}
 		return allowMatchEmpty && matchEmpty
+	}, nil
+}
+
+func newMatchRegex(value string, compatibility *Compatibility) (*regexp.Regexp, error) {
+	if value == "*" {
+		value = ".*"
 	}
+
+	if !compatibility.AllowRegexLooseStartMatch {
+		value = "^" + value
+	}
+
+	matchRegex, err := regexp.Compile(value)
+
+	return matchRegex, err
 }

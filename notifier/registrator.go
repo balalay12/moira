@@ -84,7 +84,7 @@ func (notifier *StandardNotifier) RegisterSenders(connector moira.Database) erro
 		}
 	}
 	if notifier.config.SelfStateEnabled {
-		selfStateSettings := map[string]string{"type": selfStateSender}
+		selfStateSettings := map[string]interface{}{"type": selfStateSender}
 		if err = notifier.RegisterSender(selfStateSettings, &selfstate.Sender{Database: connector}); err != nil {
 			notifier.logger.Warning().
 				Error(err).
@@ -95,14 +95,24 @@ func (notifier *StandardNotifier) RegisterSenders(connector moira.Database) erro
 }
 
 // RegisterSender adds sender for notification type and registers metrics
-func (notifier *StandardNotifier) RegisterSender(senderSettings map[string]string, sender moira.Sender) error {
+func (notifier *StandardNotifier) RegisterSender(senderSettings map[string]interface{}, sender moira.Sender) error {
 	var senderIdent string
-	switch senderSettings["type"] {
-	case scriptSender, webhookSender:
-		senderIdent = senderSettings["name"]
-	default:
-		senderIdent = senderSettings["type"]
+	senderType, ok := senderSettings["type"].(string)
+	if !ok {
+		return fmt.Errorf("failed to retrieve sender type from sender settings")
 	}
+
+	switch senderType {
+	case scriptSender, webhookSender:
+		name, ok := senderSettings["name"].(string)
+		if !ok {
+			return fmt.Errorf("failed to retrieve sender name from sender settings")
+		}
+		senderIdent = name
+	default:
+		senderIdent = senderType
+	}
+
 	err := sender.Init(senderSettings, notifier.logger, notifier.config.Location, notifier.config.DateTimeFormat)
 	if err != nil {
 		return fmt.Errorf("failed to initialize sender [%s], err [%s]", senderIdent, err.Error())
@@ -111,6 +121,7 @@ func (notifier *StandardNotifier) RegisterSender(senderSettings map[string]strin
 	notifier.senders[senderIdent] = eventsChannel
 	notifier.metrics.SendersOkMetrics.RegisterMeter(senderIdent, getGraphiteSenderIdent(senderIdent), "sends_ok")
 	notifier.metrics.SendersFailedMetrics.RegisterMeter(senderIdent, getGraphiteSenderIdent(senderIdent), "sends_failed")
+	notifier.metrics.SendersDroppedNotifications.RegisterMeter(senderIdent, getGraphiteSenderIdent(senderIdent), "notifications_dropped")
 	notifier.runSenders(sender, eventsChannel)
 	notifier.logger.Info().
 		String("sender_id", senderIdent).

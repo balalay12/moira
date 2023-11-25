@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/moira-alert/moira/notifier"
+
 	"github.com/xiam/to"
 
 	"github.com/moira-alert/moira/api"
@@ -11,12 +13,14 @@ import (
 )
 
 type config struct {
-	Redis     cmd.RedisConfig     `yaml:"redis"`
-	Logger    cmd.LoggerConfig    `yaml:"log"`
-	API       apiConfig           `yaml:"api"`
-	Web       webConfig           `yaml:"web"`
-	Telemetry cmd.TelemetryConfig `yaml:"telemetry"`
-	Remote    cmd.RemoteConfig    `yaml:"remote"`
+	Redis               cmd.RedisConfig               `yaml:"redis"`
+	Logger              cmd.LoggerConfig              `yaml:"log"`
+	API                 apiConfig                     `yaml:"api"`
+	Web                 webConfig                     `yaml:"web"`
+	Telemetry           cmd.TelemetryConfig           `yaml:"telemetry"`
+	Remote              cmd.RemoteConfig              `yaml:"remote"`
+	Prometheus          cmd.PrometheusConfig          `yaml:"prometheus"`
+	NotificationHistory cmd.NotificationHistoryConfig `yaml:"notification_history"`
 }
 
 type apiConfig struct {
@@ -33,6 +37,8 @@ type webConfig struct {
 	RemoteAllowed bool
 	// List of enabled contact types
 	Contacts []webContact `yaml:"contacts"`
+	// struct to manage feature flags.
+	FeatureFlags featureFlags `yaml:"feature_flags"`
 }
 
 type webContact struct {
@@ -49,12 +55,23 @@ type webContact struct {
 	Help string `yaml:"help"`
 }
 
-func (config *apiConfig) getSettings(localMetricTTL, remoteMetricTTL string) *api.Config {
+type featureFlags struct {
+	IsPlottingDefaultOn              bool `yaml:"is_plotting_default_on"`
+	IsPlottingAvailable              bool `yaml:"is_plotting_available"`
+	IsSubscriptionToAllTagsAvailable bool `yaml:"is_subscription_to_all_tags_available"`
+	IsReadonlyEnabled                bool `yaml:"is_readonly_enabled"`
+}
+
+func (config *apiConfig) getSettings(
+	localMetricTTL, remoteMetricTTL string,
+	flags api.FeatureFlags,
+) *api.Config {
 	return &api.Config{
-		EnableCORS:      config.EnableCORS,
-		Listen:          config.Listen,
-		LocalMetricTTL:  to.Duration(localMetricTTL),
-		RemoteMetricTTL: to.Duration(remoteMetricTTL),
+		EnableCORS:              config.EnableCORS,
+		Listen:                  config.Listen,
+		GraphiteLocalMetricTTL:  to.Duration(localMetricTTL),
+		GraphiteRemoteMetricTTL: to.Duration(remoteMetricTTL),
+		Flags:                   flags,
 	}
 }
 
@@ -74,11 +91,21 @@ func (config *webConfig) getSettings(isRemoteEnabled bool) ([]byte, error) {
 		SupportEmail:  config.SupportEmail,
 		RemoteAllowed: isRemoteEnabled,
 		Contacts:      webContacts,
+		FeatureFlags:  config.getFeatureFlags(),
 	})
 	if err != nil {
 		return make([]byte, 0), fmt.Errorf("failed to parse web config: %s", err.Error())
 	}
 	return configContent, nil
+}
+
+func (config *webConfig) getFeatureFlags() api.FeatureFlags {
+	return api.FeatureFlags{
+		IsPlottingDefaultOn:              config.FeatureFlags.IsPlottingDefaultOn,
+		IsPlottingAvailable:              config.FeatureFlags.IsPlottingAvailable,
+		IsSubscriptionToAllTagsAvailable: config.FeatureFlags.IsSubscriptionToAllTagsAvailable,
+		IsReadonlyEnabled:                config.FeatureFlags.IsReadonlyEnabled,
+	}
 }
 
 func getDefault() config {
@@ -88,6 +115,10 @@ func getDefault() config {
 			MetricsTTL:  "1h",
 			DialTimeout: "500ms",
 			MaxRetries:  3,
+		},
+		NotificationHistory: cmd.NotificationHistoryConfig{
+			NotificationHistoryTTL:        "48h",
+			NotificationHistoryQueryLimit: int(notifier.NotificationsLimitUnlimited),
 		},
 		Logger: cmd.LoggerConfig{
 			LogFile:         "stdout",
@@ -100,6 +131,11 @@ func getDefault() config {
 		},
 		Web: webConfig{
 			RemoteAllowed: false,
+			FeatureFlags: featureFlags{
+				IsPlottingDefaultOn:              true,
+				IsPlottingAvailable:              true,
+				IsSubscriptionToAllTagsAvailable: true,
+			},
 		},
 		Telemetry: cmd.TelemetryConfig{
 			Listen: ":8091",
@@ -115,6 +151,12 @@ func getDefault() config {
 		Remote: cmd.RemoteConfig{
 			Timeout:    "60s",
 			MetricsTTL: "7d",
+		},
+		Prometheus: cmd.PrometheusConfig{
+			Timeout:      "60s",
+			MetricsTTL:   "7d",
+			Retries:      1,
+			RetryTimeout: "10s",
 		},
 	}
 }

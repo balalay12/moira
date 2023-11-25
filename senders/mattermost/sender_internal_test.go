@@ -1,10 +1,13 @@
 package mattermost
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/mattermost/mattermost/server/public/model"
 
 	"github.com/moira-alert/moira"
 
@@ -19,11 +22,11 @@ func TestSendEvents(t *testing.T) {
 	sender := &Sender{}
 
 	Convey("Given configured sender", t, func() {
-		senderSettings := map[string]string{ // redundant, but necessary config
+		senderSettings := map[string]interface{}{ // redundant, but necessary config
 			"url":          "qwerty",
 			"api_token":    "qwerty",
 			"front_uri":    "qwerty",
-			"insecure_tls": "true",
+			"insecure_tls": true,
 		}
 		err := sender.Init(senderSettings, logger, nil, "")
 		So(err, ShouldBeNil)
@@ -31,7 +34,7 @@ func TestSendEvents(t *testing.T) {
 		Convey("When client return error, SendEvents should return error", func() {
 			ctrl := gomock.NewController(t)
 			client := mock.NewMockClient(ctrl)
-			client.EXPECT().CreatePost(gomock.Any()).Return(nil, nil, errors.New(""))
+			client.EXPECT().CreatePost(context.Background(), gomock.Any()).Return(nil, nil, errors.New(""))
 			sender.client = client
 
 			events, contact, trigger, plots, throttled := moira.NotificationEvents{}, moira.ContactData{}, moira.TriggerData{}, make([][]byte, 0), false
@@ -39,13 +42,31 @@ func TestSendEvents(t *testing.T) {
 			So(err, ShouldNotBeNil)
 		})
 
-		Convey("When client CreatePost is success, SendEvents should not return error", func() {
+		Convey("When client CreatePost is success and no plots, SendEvents should not return error", func() {
 			ctrl := gomock.NewController(t)
 			client := mock.NewMockClient(ctrl)
-			client.EXPECT().CreatePost(gomock.Any()).Return(nil, nil, nil)
+			client.EXPECT().CreatePost(context.Background(), gomock.Any()).Return(&model.Post{Id: "postID"}, nil, nil)
 			sender.client = client
 
 			events, contact, trigger, plots, throttled := moira.NotificationEvents{}, moira.ContactData{}, moira.TriggerData{}, make([][]byte, 0), false
+			err = sender.SendEvents(events, contact, trigger, plots, throttled)
+			So(err, ShouldBeNil)
+		})
+
+		Convey("When client CreatePost is success and have succeeded sent plots, SendEvents should not return error", func() {
+			ctrl := gomock.NewController(t)
+			client := mock.NewMockClient(ctrl)
+			client.EXPECT().CreatePost(context.Background(), gomock.Any()).Return(&model.Post{Id: "postID"}, nil, nil).Times(2)
+			client.EXPECT().UploadFile(context.Background(), gomock.Any(), "contactDataID", "triggerID.png").
+				Return(
+					&model.FileUploadResponse{
+						FileInfos: []*model.FileInfo{{Id: "fileID"}},
+					}, nil, nil)
+			sender.client = client
+
+			plots := make([][]byte, 0)
+			plots = append(plots, []byte("my_awesome_plot"))
+			events, contact, trigger, throttled := moira.NotificationEvents{}, moira.ContactData{Value: "contactDataID"}, moira.TriggerData{ID: "triggerID"}, false
 			err = sender.SendEvents(events, contact, trigger, plots, throttled)
 			So(err, ShouldBeNil)
 		})
@@ -57,10 +78,10 @@ func TestBuildMessage(t *testing.T) {
 	sender := &Sender{}
 
 	Convey("Given configured sender", t, func() {
-		senderSettings := map[string]string{
+		senderSettings := map[string]interface{}{
 			"url": "qwerty", "api_token": "qwerty", // redundant, but necessary config
 			"front_uri":    "http://moira.url",
-			"insecure_tls": "true",
+			"insecure_tls": true,
 		}
 		location, _ := time.LoadLocation("UTC")
 		err := sender.Init(senderSettings, logger, location, "")
@@ -90,7 +111,7 @@ func TestBuildMessage(t *testing.T) {
 			expected := "**NODATA** [Name](http://moira.url/trigger/TriggerID) [tag1][tag2]\n" +
 				shortDesc + "\n" +
 				"```\n" +
-				"02:40: Metric = 123 (OK to NODATA)```"
+				"02:40 (GMT+00:00): Metric = 123 (OK to NODATA)```"
 			So(msg, ShouldEqual, expected)
 		})
 
@@ -101,7 +122,7 @@ func TestBuildMessage(t *testing.T) {
 			expected := "**NODATA** [Name](http://moira.url/trigger/TriggerID) [tag1][tag2]\n" +
 				shortDesc + "\n" +
 				"```\n" +
-				"02:40: Metric = 123 (OK to NODATA)```" + "\n" +
+				"02:40 (GMT+00:00): Metric = 123 (OK to NODATA)```" + "\n" +
 				"Please, *fix your system or tune this trigger* to generate less events."
 			So(msg, ShouldEqual, expected)
 		})
@@ -111,9 +132,9 @@ func TestBuildMessage(t *testing.T) {
 			expected := "**NODATA** [Name](http://moira.url/trigger/TriggerID) [tag1][tag2]\n" +
 				shortDesc + "\n" +
 				"```\n" +
-				"02:40: Metric = 123 (OK to NODATA)\n" +
-				"02:40: Metric = 123 (OK to NODATA)\n" +
-				"02:40: Metric = 123 (OK to NODATA)```"
+				"02:40 (GMT+00:00): Metric = 123 (OK to NODATA)\n" +
+				"02:40 (GMT+00:00): Metric = 123 (OK to NODATA)\n" +
+				"02:40 (GMT+00:00): Metric = 123 (OK to NODATA)```"
 			So(actual, ShouldResemble, expected)
 		})
 
@@ -125,7 +146,7 @@ func TestBuildMessage(t *testing.T) {
 				lessThanHalf    = halfLimit - 100
 			)
 
-			const eventLine = "\n02:40: Metric = 123 (OK to NODATA)"
+			const eventLine = "\n02:40 (GMT+00:00): Metric = 123 (OK to NODATA)"
 			oneEventLineLen := len([]rune(eventLine))
 
 			longDesc := strings.Repeat("a", greaterThanHalf)
@@ -144,10 +165,10 @@ func TestBuildMessage(t *testing.T) {
 
 				actual := sender.buildMessage(events, moira.TriggerData{Desc: longDesc}, false)
 				expected := "**NODATA**\n" +
-					strings.Repeat("a", 2083) + "...\n" +
+					strings.Repeat("a", 2100) + "\n" +
 					"```\n" +
-					strings.Repeat("02:40: Metric = 123 (OK to NODATA)\n", 53) +
-					"02:40: Metric = 123 (OK to NODATA)```"
+					strings.Repeat("02:40 (GMT+00:00): Metric = 123 (OK to NODATA)\n", 39) +
+					"02:40 (GMT+00:00): Metric = 123 (OK to NODATA)```"
 				So(actual, ShouldResemble, expected)
 			})
 
@@ -157,9 +178,8 @@ func TestBuildMessage(t *testing.T) {
 				expected := "**NODATA**\n" +
 					desc + "\n" +
 					"```\n" +
-					strings.Repeat("02:40: Metric = 123 (OK to NODATA)\n", 57) +
-					"02:40: Metric = 123 (OK to NODATA)```\n" +
-					"...and 2 more events."
+					strings.Repeat("02:40 (GMT+00:00): Metric = 123 (OK to NODATA)\n", 43) +
+					"02:40 (GMT+00:00): Metric = 123 (OK to NODATA)```"
 				So(actual, ShouldResemble, expected)
 			})
 
@@ -168,9 +188,9 @@ func TestBuildMessage(t *testing.T) {
 				expected := "**NODATA**\n" +
 					strings.Repeat("a", 1984) + "...\n" +
 					"```\n" +
-					strings.Repeat("02:40: Metric = 123 (OK to NODATA)\n", 55) +
-					"02:40: Metric = 123 (OK to NODATA)```\n" +
-					"...and 4 more events."
+					strings.Repeat("02:40 (GMT+00:00): Metric = 123 (OK to NODATA)\n", 40) +
+					"02:40 (GMT+00:00): Metric = 123 (OK to NODATA)```\n" +
+					"...and 3 more events."
 				So(actual, ShouldResemble, expected)
 			})
 		})

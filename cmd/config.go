@@ -8,6 +8,7 @@ import (
 	"github.com/moira-alert/moira/metrics"
 
 	"github.com/moira-alert/moira/image_store/s3"
+	"github.com/moira-alert/moira/metric_source/prometheus"
 	remoteSource "github.com/moira-alert/moira/metric_source/remote"
 	"github.com/xiam/to"
 	"gopkg.in/yaml.v2"
@@ -25,6 +26,10 @@ type RedisConfig struct {
 	MasterName string `yaml:"master_name"`
 	// Redis address list, format: {host1_name:port},{ip:port}
 	Addrs string `yaml:"addrs"`
+	// Redis Sentinel password
+	SentinelPassword string `yaml:"sentinel_password"`
+	// Redis Sentinel username
+	SentinelUsername string `yaml:"sentinel_username"`
 	// Redis username
 	Username string `yaml:"username"`
 	// Redis password
@@ -43,8 +48,8 @@ type RedisConfig struct {
 }
 
 // GetSettings returns redis config parsed from moira config files
-func (config *RedisConfig) GetSettings() redis.Config {
-	return redis.Config{
+func (config *RedisConfig) GetSettings() redis.DatabaseConfig {
+	return redis.DatabaseConfig{
 		MasterName:   config.MasterName,
 		Addrs:        strings.Split(config.Addrs, ","),
 		Username:     config.Username,
@@ -54,6 +59,47 @@ func (config *RedisConfig) GetSettings() redis.Config {
 		DialTimeout:  to.Duration(config.DialTimeout),
 		ReadTimeout:  to.Duration(config.ReadTimeout),
 		WriteTimeout: to.Duration(config.WriteTimeout),
+	}
+}
+
+// NotificationHistoryConfig is the config which coordinates interaction with notification statistics
+// e.g. how much time should we store it, or how many history items can we request from database
+type NotificationHistoryConfig struct {
+	// Time which moira should store contacts and theirs events history
+	NotificationHistoryTTL string `yaml:"ttl"`
+	// Max count of events which moira may send as response of contact and its events history
+	NotificationHistoryQueryLimit int `yaml:"query_limit"`
+}
+
+// GetSettings returns notification history storage policy configuration
+func (notificationHistoryConfig *NotificationHistoryConfig) GetSettings() redis.NotificationHistoryConfig {
+	return redis.NotificationHistoryConfig{
+		NotificationHistoryTTL:        to.Duration(notificationHistoryConfig.NotificationHistoryTTL),
+		NotificationHistoryQueryLimit: notificationHistoryConfig.NotificationHistoryQueryLimit,
+	}
+}
+
+// NotificationConfig is a config that stores the necessary configuration of the notifier
+type NotificationConfig struct {
+	// Need to determine if notification is delayed - the difference between creation time and sending time
+	// is greater than DelayedTime
+	DelayedTime string `yaml:"delayed_time"`
+	// TransactionTimeout defines the timeout between fetch notifications transactions
+	TransactionTimeout string `yaml:"transaction_timeout"`
+	// TransactionMaxRetries defines the maximum number of attempts to make a transaction
+	TransactionMaxRetries int `yaml:"transaction_max_retries"`
+	// TransactionHeuristicLimit maximum allowable limit, after this limit all notifications
+	// without limit will be taken
+	TransactionHeuristicLimit int64 `yaml:"transaction_heuristic_limit"`
+}
+
+// GetSettings returns notification storage configuration
+func (notificationConfig *NotificationConfig) GetSettings() redis.NotificationConfig {
+	return redis.NotificationConfig{
+		DelayedTime:               to.Duration(notificationConfig.DelayedTime),
+		TransactionTimeout:        to.Duration(notificationConfig.TransactionTimeout),
+		TransactionMaxRetries:     notificationConfig.TransactionMaxRetries,
+		TransactionHeuristicLimit: notificationConfig.TransactionHeuristicLimit,
 	}
 }
 
@@ -121,11 +167,6 @@ type RemoteConfig struct {
 	Enabled bool `yaml:"enabled"`
 }
 
-// ImageStoreConfig defines the configuration for all the image stores to be initialized by InitImageStores
-type ImageStoreConfig struct {
-	S3 s3.Config `yaml:"s3"`
-}
-
 // GetRemoteSourceSettings returns remote config parsed from moira config files
 func (config *RemoteConfig) GetRemoteSourceSettings() *remoteSource.Config {
 	return &remoteSource.Config{
@@ -137,6 +178,48 @@ func (config *RemoteConfig) GetRemoteSourceSettings() *remoteSource.Config {
 		Password:      config.Password,
 		Enabled:       config.Enabled,
 	}
+}
+
+type PrometheusConfig struct {
+	// Url of prometheus API
+	URL string `yaml:"url"`
+	// Min period to perform triggers re-check
+	CheckInterval string `yaml:"check_interval"`
+	// Moira won't fetch metrics older than this value from prometheus remote storage.
+	// Large values will lead to OOM problems in checker.
+	MetricsTTL string `yaml:"metrics_ttl"`
+	// Timeout for prometheus api requests
+	Timeout string `yaml:"timeout"`
+	// Number of retries for prometheus api requests
+	Retries int `yaml:"retries"`
+	// Timeout between retries for prometheus api requests
+	RetryTimeout string `yaml:"retry_timeout"`
+	// Username for basic auth
+	User string `yaml:"user"`
+	// Password for basic auth
+	Password string `yaml:"password"`
+	// If true, prometheus remote worker will be enabled.
+	Enabled bool `yaml:"enabled"`
+}
+
+// GetRemoteSourceSettings returns remote config parsed from moira config files
+func (config *PrometheusConfig) GetPrometheusSourceSettings() *prometheus.Config {
+	return &prometheus.Config{
+		Enabled:        config.Enabled,
+		URL:            config.URL,
+		CheckInterval:  to.Duration(config.CheckInterval),
+		MetricsTTL:     to.Duration(config.MetricsTTL),
+		User:           config.User,
+		Password:       config.Password,
+		RequestTimeout: to.Duration(config.Timeout),
+		Retries:        config.Retries,
+		RetryTimeout:   to.Duration(config.RetryTimeout),
+	}
+}
+
+// ImageStoreConfig defines the configuration for all the image stores to be initialized by InitImageStores
+type ImageStoreConfig struct {
+	S3 s3.Config `yaml:"s3"`
 }
 
 // ReadConfig parses config file by the given path into Moira-used type

@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/bwmarrin/discordgo"
+	"github.com/mitchellh/mapstructure"
 	"github.com/moira-alert/moira"
 	"github.com/moira-alert/moira/worker"
 )
@@ -15,6 +16,12 @@ const (
 	discordLockTTL  = 30 * time.Second
 	workerName      = "DiscordBot"
 )
+
+// Structure that represents the Discord configuration in the YAML file
+type config struct {
+	Token    string `mapstructure:"token"`
+	FrontURI string `mapstructure:"front_uri"`
+}
 
 // Sender implements moira sender interface for discord
 type Sender struct {
@@ -27,18 +34,22 @@ type Sender struct {
 }
 
 // Init reads the yaml config
-func (sender *Sender) Init(senderSettings map[string]string, logger moira.Logger, location *time.Location, dateTimeFormat string) error {
-	var err error
-	token := senderSettings["token"]
-	if token == "" {
+func (sender *Sender) Init(senderSettings interface{}, logger moira.Logger, location *time.Location, dateTimeFormat string) error {
+	var cfg config
+	err := mapstructure.Decode(senderSettings, &cfg)
+	if err != nil {
+		return fmt.Errorf("failed to decode senderSettings to discord config: %w", err)
+	}
+
+	if cfg.Token == "" {
 		return fmt.Errorf("cannot read the discord token from the config")
 	}
-	sender.session, err = discordgo.New("Bot " + token)
+	sender.session, err = discordgo.New("Bot " + cfg.Token)
 	if err != nil {
 		return fmt.Errorf("error creating discord session: %s", err)
 	}
 	sender.logger = logger
-	sender.frontURI = senderSettings["front_uri"]
+	sender.frontURI = cfg.FrontURI
 	sender.location = location
 
 	handleMsg := func(s *discordgo.Session, m *discordgo.MessageCreate) {

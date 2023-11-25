@@ -6,13 +6,14 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/collectors"
 )
 
 const namespace = "moira"
 
 func NewPrometheusRegistry() *prometheus.Registry {
 	registry := prometheus.NewRegistry()
-	registry.MustRegister(prometheus.NewGoCollector(), prometheus.NewProcessCollector(prometheus.ProcessCollectorOpts{}))
+	registry.MustRegister(collectors.NewGoCollector(), collectors.NewProcessCollector(collectors.ProcessCollectorOpts{}))
 	return registry
 }
 
@@ -47,7 +48,12 @@ func (source *PrometheusRegistryAdapter) NewCounter(path ...string) Counter {
 }
 
 func (source *PrometheusRegistryAdapter) NewHistogram(path ...string) Histogram {
-	var histogramOpts = prometheus.HistogramOpts{Namespace: namespace, Subsystem: source.service, Name: getPrometheusMetricName(path)}
+	var histogramOpts = prometheus.HistogramOpts{
+		Namespace: namespace,
+		Subsystem: source.service,
+		Name:      getPrometheusMetricName(path),
+		Buckets:   []float64{0.005, 0.01, 0.025, 0.05, 0.075, 0.1, 0.25, 0.5, 0.75, 1, 2.5, 5, 7.5, 10, 20, 100, 200, 300, 500, 1000},
+	}
 	var histogram = prometheus.NewHistogram(histogramOpts)
 	source.registry.MustRegister(histogram)
 	return &prometheusHistogram{histogram: histogram}
@@ -72,8 +78,9 @@ type prometheusMeter struct {
 	summary prometheus.Summary
 }
 
-func (source *prometheusMeter) Mark(int64) {
+func (source *prometheusMeter) Mark(value int64) {
 	atomic.AddInt64(&source.count, 1)
+	source.summary.Observe(float64(value))
 }
 
 func (source *prometheusMeter) Count() int64 {

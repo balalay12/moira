@@ -50,6 +50,7 @@ func TestEvent(t *testing.T) {
 			},
 			SendFail:  0,
 			Timestamp: time.Now().Unix(),
+			CreatedAt: time.Now().Unix(),
 			Throttled: false,
 			Contact:   contact,
 		}
@@ -88,6 +89,7 @@ func TestEvent(t *testing.T) {
 			},
 			SendFail:  0,
 			Timestamp: now.Unix(),
+			CreatedAt: now.Unix(),
 			Throttled: false,
 			Contact:   contact,
 		}
@@ -161,7 +163,7 @@ func TestDisabledNotification(t *testing.T) {
 		logger.EXPECT().String(gomock.Any(), gomock.Any()).Return(logger).AnyTimes()
 		logger.EXPECT().Debug().Return(eventBuilder).AnyTimes()
 
-		metricString := fmt.Sprintf("%s == %s", event.Metric, event.GetMetricsValues())
+		metricString := fmt.Sprintf("%s == %s", event.Metric, event.GetMetricsValues(moira.DefaultNotificationSettings))
 		eventBuilder.EXPECT().String("metric", metricString).Return(eventBuilder)
 		eventBuilder.EXPECT().String("old_state", event.OldState.String()).Return(eventBuilder)
 		eventBuilder.EXPECT().String("new_state", event.State.String()).Return(eventBuilder)
@@ -208,7 +210,7 @@ func TestSubscriptionsManagedToIgnoreEvents(t *testing.T) {
 		dataBase.EXPECT().GetTagsSubscriptions(triggerData.Tags).Times(1).
 			Return([]*moira.SubscriptionData{&subscriptionToIgnoreWarnings}, nil)
 
-		metricString := fmt.Sprintf("%s == %s", event.Metric, event.GetMetricsValues())
+		metricString := fmt.Sprintf("%s == %s", event.Metric, event.GetMetricsValues(moira.DefaultNotificationSettings))
 		eventBuilder.EXPECT().String("metric", metricString).Return(eventBuilder)
 		eventBuilder.EXPECT().String("old_state", event.OldState.String()).Return(eventBuilder)
 		eventBuilder.EXPECT().String("new_state", event.State.String()).Return(eventBuilder)
@@ -244,7 +246,7 @@ func TestSubscriptionsManagedToIgnoreEvents(t *testing.T) {
 		dataBase.EXPECT().GetTagsSubscriptions(triggerData.Tags).Times(1).
 			Return([]*moira.SubscriptionData{&subscriptionToIgnoreWarnings}, nil)
 
-		metricString := fmt.Sprintf("%s == %s", event.Metric, event.GetMetricsValues())
+		metricString := fmt.Sprintf("%s == %s", event.Metric, event.GetMetricsValues(moira.DefaultNotificationSettings))
 		eventBuilder.EXPECT().String("metric", metricString).Return(eventBuilder)
 		eventBuilder.EXPECT().String("old_state", event.OldState.String()).Return(eventBuilder)
 		eventBuilder.EXPECT().String("new_state", event.State.String()).Return(eventBuilder)
@@ -277,9 +279,18 @@ func TestSubscriptionsManagedToIgnoreEvents(t *testing.T) {
 		}
 
 		dataBase.EXPECT().GetTrigger(event.TriggerID).Return(trigger, nil)
+		var subscriptionToIgnoreWarningsAndRecoverings = moira.SubscriptionData{
+			ID:                "subscriptionID-00000000000003",
+			Enabled:           true,
+			Tags:              []string{"test-tag"},
+			Contacts:          []string{contact.ID},
+			ThrottlingEnabled: true,
+			IgnoreWarnings:    true,
+			IgnoreRecoverings: true,
+		}
 		dataBase.EXPECT().GetTagsSubscriptions(triggerData.Tags).Times(1).Return([]*moira.SubscriptionData{&subscriptionToIgnoreWarningsAndRecoverings}, nil)
 
-		metricString := fmt.Sprintf("%s == %s", event.Metric, event.GetMetricsValues())
+		metricString := fmt.Sprintf("%s == %s", event.Metric, event.GetMetricsValues(moira.DefaultNotificationSettings))
 		eventBuilder.EXPECT().String("metric", metricString).Return(eventBuilder)
 		eventBuilder.EXPECT().String("old_state", event.OldState.String()).Return(eventBuilder)
 		eventBuilder.EXPECT().String("new_state", event.State.String()).Return(eventBuilder)
@@ -405,7 +416,7 @@ func TestFailReadContact(t *testing.T) {
 		logger.EXPECT().String(gomock.Any(), gomock.Any()).Return(logger).AnyTimes()
 		logger.EXPECT().Debug().Return(eventBuilder).AnyTimes()
 
-		metricString := fmt.Sprintf("%s == %s", event.Metric, event.GetMetricsValues())
+		metricString := fmt.Sprintf("%s == %s", event.Metric, event.GetMetricsValues(moira.DefaultNotificationSettings))
 		eventBuilder.EXPECT().String("metric", metricString).Return(eventBuilder)
 		eventBuilder.EXPECT().String("old_state", event.OldState.String()).Return(eventBuilder)
 		eventBuilder.EXPECT().String("new_state", event.State.String()).Return(eventBuilder)
@@ -455,7 +466,7 @@ func TestEmptySubscriptions(t *testing.T) {
 		dataBase.EXPECT().GetTrigger(event.TriggerID).Return(trigger, nil)
 		dataBase.EXPECT().GetTagsSubscriptions(triggerData.Tags).Times(1).Return([]*moira.SubscriptionData{{ThrottlingEnabled: true}}, nil)
 
-		metricString := fmt.Sprintf("%s == %s", event.Metric, event.GetMetricsValues())
+		metricString := fmt.Sprintf("%s == %s", event.Metric, event.GetMetricsValues(moira.DefaultNotificationSettings))
 		eventBuilder.EXPECT().String("metric", metricString).Return(eventBuilder)
 		eventBuilder.EXPECT().String("old_state", event.OldState.String()).Return(eventBuilder)
 		eventBuilder.EXPECT().String("new_state", event.State.String()).Return(eventBuilder)
@@ -490,7 +501,7 @@ func TestEmptySubscriptions(t *testing.T) {
 		dataBase.EXPECT().GetTrigger(event.TriggerID).Return(trigger, nil)
 		dataBase.EXPECT().GetTagsSubscriptions(triggerData.Tags).Times(1).Return([]*moira.SubscriptionData{nil}, nil)
 
-		metricString := fmt.Sprintf("%s == %s", event.Metric, event.GetMetricsValues())
+		metricString := fmt.Sprintf("%s == %s", event.Metric, event.GetMetricsValues(moira.DefaultNotificationSettings))
 		eventBuilder.EXPECT().String("metric", metricString).Return(eventBuilder)
 		eventBuilder.EXPECT().String("old_state", event.OldState.String()).Return(eventBuilder)
 		eventBuilder.EXPECT().String("new_state", event.State.String()).Return(eventBuilder)
@@ -655,25 +666,6 @@ var subscriptionToIgnoreWarnings = moira.SubscriptionData{
 	Contacts:          []string{contact.ID},
 	ThrottlingEnabled: true,
 	IgnoreWarnings:    true,
-}
-
-var subscriptionToIgnoreRecoverings = moira.SubscriptionData{
-	ID:                "subscriptionID-00000000000003",
-	Enabled:           true,
-	Tags:              []string{"test-tag"},
-	Contacts:          []string{contact.ID},
-	ThrottlingEnabled: true,
-	IgnoreRecoverings: true,
-}
-
-var subscriptionToIgnoreWarningsAndRecoverings = moira.SubscriptionData{
-	ID:                "subscriptionID-00000000000003",
-	Enabled:           true,
-	Tags:              []string{"test-tag"},
-	Contacts:          []string{contact.ID},
-	ThrottlingEnabled: true,
-	IgnoreWarnings:    true,
-	IgnoreRecoverings: true,
 }
 
 var emptyNotifierConfig = notifier.Config{

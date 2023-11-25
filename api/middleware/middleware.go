@@ -17,27 +17,29 @@ func (key ContextKey) String() string {
 }
 
 var (
-	databaseKey          ContextKey = "database"
-	searcherKey          ContextKey = "searcher"
-	triggerIDKey         ContextKey = "triggerID"
-	localMetricTTLKey    ContextKey = "localMetricTTL"
-	remoteMetricTTLKey   ContextKey = "remoteMetricTTL"
-	populateKey          ContextKey = "populated"
-	contactIDKey         ContextKey = "contactID"
-	tagKey               ContextKey = "tag"
-	subscriptionIDKey    ContextKey = "subscriptionID"
-	pageKey              ContextKey = "page"
-	sizeKey              ContextKey = "size"
-	pagerIDKey           ContextKey = "pagerID"
-	createPagerKey       ContextKey = "createPager"
-	fromKey              ContextKey = "from"
-	toKey                ContextKey = "to"
-	loginKey             ContextKey = "login"
-	timeSeriesNamesKey   ContextKey = "timeSeriesNames"
-	metricSourceProvider ContextKey = "metricSourceProvider"
-	targetNameKey        ContextKey = "target"
-	teamIDKey            ContextKey = "teamID"
-	teamUserIDKey        ContextKey = "teamUserIDKey"
+	databaseKey            ContextKey = "database"
+	searcherKey            ContextKey = "searcher"
+	triggerIDKey           ContextKey = "triggerID"
+	localMetricTTLKey      ContextKey = "localMetricTTL"
+	remoteMetricTTLKey     ContextKey = "remoteMetricTTL"
+	prometheusMetricTTLKey ContextKey = "prometheusMetricTTL"
+	populateKey            ContextKey = "populated"
+	contactIDKey           ContextKey = "contactID"
+	tagKey                 ContextKey = "tag"
+	subscriptionIDKey      ContextKey = "subscriptionID"
+	pageKey                ContextKey = "page"
+	sizeKey                ContextKey = "size"
+	pagerIDKey             ContextKey = "pagerID"
+	createPagerKey         ContextKey = "createPager"
+	fromKey                ContextKey = "from"
+	toKey                  ContextKey = "to"
+	loginKey               ContextKey = "login"
+	timeSeriesNamesKey     ContextKey = "timeSeriesNames"
+	metricSourceProvider   ContextKey = "metricSourceProvider"
+	targetNameKey          ContextKey = "target"
+	teamIDKey              ContextKey = "teamID"
+	teamUserIDKey          ContextKey = "teamUserIDKey"
+	anonymousUser                     = "anonymous"
 )
 
 // GetDatabase gets moira.Database realization from request context
@@ -47,7 +49,13 @@ func GetDatabase(request *http.Request) moira.Database {
 
 // GetLogin gets user login string from request context, which was sets in UserContext middleware
 func GetLogin(request *http.Request) string {
-	return request.Context().Value(loginKey).(string)
+	if request.Context() != nil && request.Context().Value(loginKey) != nil {
+		if login := request.Context().Value(loginKey).(string); login != "" {
+			return login
+		}
+	}
+
+	return anonymousUser
 }
 
 // GetTriggerID gets TriggerID string from request context, which was sets in TriggerContext middleware
@@ -63,6 +71,11 @@ func GetLocalMetricTTL(request *http.Request) time.Duration {
 // GetRemoteMetricTTL gets remote metric ttl duration time from request context, which was sets in TriggerContext middleware
 func GetRemoteMetricTTL(request *http.Request) time.Duration {
 	return request.Context().Value(remoteMetricTTLKey).(time.Duration)
+}
+
+// GetRemoteMetricTTL gets remote metric ttl duration time from request context, which was sets in TriggerContext middleware
+func GetPrometheusMetricTTL(request *http.Request) time.Duration {
+	return request.Context().Value(prometheusMetricTTLKey).(time.Duration)
 }
 
 // GetPopulated get populate bool from request context, which was sets in TriggerContext middleware

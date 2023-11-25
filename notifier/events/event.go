@@ -59,6 +59,8 @@ func (worker *FetchEventsWorker) Start() {
 						worker.Metrics.EventsProcessingFailed.Mark(1)
 						worker.Logger.Error().
 							Error(err).
+							String("trigger_id", event.TriggerID).
+							String("contact_id", event.ContactID).
 							Msg("Failed processEvent")
 					}
 				}
@@ -84,7 +86,7 @@ func (worker *FetchEventsWorker) processEvent(event moira.NotificationEvent) err
 	)
 	if event.State != moira.StateTEST {
 		log.Debug().
-			String("metric", fmt.Sprintf("%s == %s", event.Metric, event.GetMetricsValues())).
+			String("metric", fmt.Sprintf("%s == %s", event.Metric, event.GetMetricsValues(moira.DefaultNotificationSettings))).
 			String("old_state", event.OldState.String()).
 			String("new_state", event.State.String()).
 			Msg("Processing trigger for metric")
@@ -98,14 +100,15 @@ func (worker *FetchEventsWorker) processEvent(event moira.NotificationEvent) err
 		}
 
 		triggerData = moira.TriggerData{
-			ID:         trigger.ID,
-			Name:       trigger.Name,
-			Desc:       moira.UseString(trigger.Desc),
-			Targets:    trigger.Targets,
-			WarnValue:  moira.UseFloat64(trigger.WarnValue),
-			ErrorValue: moira.UseFloat64(trigger.ErrorValue),
-			IsRemote:   trigger.IsRemote,
-			Tags:       trigger.Tags,
+			ID:            trigger.ID,
+			Name:          trigger.Name,
+			Desc:          moira.UseString(trigger.Desc),
+			Targets:       trigger.Targets,
+			WarnValue:     moira.UseFloat64(trigger.WarnValue),
+			ErrorValue:    moira.UseFloat64(trigger.ErrorValue),
+			IsRemote:      trigger.TriggerSource == moira.GraphiteRemote,
+			TriggerSource: trigger.TriggerSource,
+			Tags:          trigger.Tags,
 		}
 
 		log.Debug().
